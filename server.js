@@ -497,6 +497,40 @@ app.get("/delete", async (req, res) => {
   res.send(html);
 });
 
+async function findRankedUserByPosition(positionParam) {
+  const position = parseInt(positionParam, 10);
+  if (!Number.isFinite(position) || position < 1) {
+    return { ok: false, status: 400, error: "Invalid position number" };
+  }
+
+  const all = await store.getAllUsers();
+  const user = all.find((u) => isRankedUser(u) && u.position === position);
+
+  if (!user) {
+    return { ok: false, status: 404, error: "No user at that position" };
+  }
+
+  return { ok: true, user };
+}
+
+app.get("/user/position/:position", async (req, res) => {
+  const key = req.query.key;
+  if (key !== ADMIN_KEY) {
+    return res.status(403).json({ error: "Unauthorized" });
+  }
+
+  const lookup = await findRankedUserByPosition(req.params.position);
+  if (!lookup.ok) {
+    return res.status(lookup.status).json({ error: lookup.error });
+  }
+
+  const user = lookup.user;
+
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Refresh", "5");
+  res.send(JSON.stringify(user, null, 2));
+});
+
 app.get("/user/:id", async (req, res) => {
   const { id } = req.params;
   const key = req.query.key;
@@ -520,6 +554,49 @@ app.get("/register/:id", async (req, res) => {
   await store.saveUser(user);
   res.setHeader("Content-Type", "application/json");
   res.send(JSON.stringify(user, null, 2));
+});
+
+app.get("/delete/position/:position", async (req, res) => {
+  const key = req.query.key;
+  const fromWeb = req.query.from === "web";
+
+  const lookup = await findRankedUserByPosition(req.params.position);
+  if (!lookup.ok) {
+    return res.status(lookup.status).json({ error: lookup.error });
+  }
+
+  const id = lookup.user.id;
+  const check = await canDelete(id, key);
+  if (!check.ok) {
+    if (fromWeb) {
+      const safeKey = encodeURIComponent(key);
+      return res.redirect(
+        `/delete?key=${safeKey}&error=${encodeURIComponent(check.error)}`
+      );
+    }
+    return res.status(check.status).json({ error: check.error });
+  }
+
+  await performDelete(id);
+
+  if (fromWeb) {
+    const safeKey = encodeURIComponent(key);
+    return res.redirect(`/delete?key=${safeKey}&deleted=1`);
+  }
+
+  const remainingUsers = (await store.getAllUsers()).sort((a, b) => {
+    if (isRankedUser(a) && isRankedUser(b)) return a.position - b.position;
+    return new Date(a.joined) - new Date(b.joined);
+  });
+
+  res.setHeader("Content-Type", "application/json");
+  res.send(
+    JSON.stringify(
+      { success: true, deletedId: id, position: lookup.user.position, users: remainingUsers },
+      null,
+      2
+    )
+  );
 });
 
 app.get("/delete/:id", async (req, res) => {
