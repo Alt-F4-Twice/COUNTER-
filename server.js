@@ -11,6 +11,7 @@ app.use(cookieParser());
 // In-memory storage (replace with DB for production)
 let users = new Map();
 let positionCounter = 1;
+const ipCountryCache = new Map();
 
 function isRankedUser(user) {
   return user.position != null && !user.admin && !user.test && user.ip !== "TEST" && user.ip !== "ADMIN";
@@ -76,6 +77,53 @@ function getIP(req) {
   }
 
   return ip;
+}
+
+async function getCountryCode(ip) {
+  if (!ip || ip === "TEST" || ip === "ADMIN" || ip === "127.0.0.1") {
+    return null;
+  }
+
+  if (ipCountryCache.has(ip)) {
+    return ipCountryCache.get(ip);
+  }
+
+  try {
+    const res = await axios.get(
+      `http://ip-api.com/json/${ip}?fields=status,countryCode`,
+      { timeout: 3000 }
+    );
+    const code =
+      res.data.status === "success" ? res.data.countryCode : null;
+    ipCountryCache.set(ip, code);
+    return code;
+  } catch {
+    ipCountryCache.set(ip, null);
+    return null;
+  }
+}
+
+function displayCountryCode(code) {
+  if (code === "GB") return "UK";
+  if (code === "US") return "USA";
+  return code;
+}
+
+function formatIpDisplay(ip) {
+  if (!ip || ip === "TEST" || ip === "ADMIN") return ip;
+  const country = ipCountryCache.get(ip);
+  return country ? `${ip} (${displayCountryCode(country)})` : ip;
+}
+
+async function prefetchCountries(userList) {
+  const ips = [
+    ...new Set(
+      userList
+        .map((u) => u.ip)
+        .filter((ip) => ip && ip !== "TEST" && ip !== "ADMIN")
+    ),
+  ];
+  await Promise.all(ips.map((ip) => getCountryCode(ip)));
 }
 
 async function checkIP(ip) {
@@ -269,14 +317,14 @@ function buildTableRows(userList, showPosition) {
       <td>${u.id}${label}</td>
       <td>${u.name}</td>
       <td>${u.registered ? "yes" : "no"}</td>
-      <td>${u.ip}</td>
+      <td>${formatIpDisplay(u.ip)}</td>
     </tr>`;
   });
   return rows;
 }
 
 // LEADERBOARD — people (/counter) vs special (/test + /admin)
-app.get("/leaderboard", (req, res) => {
+app.get("/leaderboard", async (req, res) => {
   if (req.query.key !== ADMIN_KEY) {
     return res.status(403).send("Unauthorized");
   }
@@ -288,6 +336,8 @@ app.get("/leaderboard", (req, res) => {
   const specialUsers = [...users.values()]
     .filter(isSpecialUser)
     .sort((a, b) => new Date(a.joined) - new Date(b.joined));
+
+  await prefetchCountries([...rankedUsers, ...specialUsers]);
 
   const refreshInterval = 5;
 
