@@ -260,8 +260,12 @@ app.get("/counter", async (req, res) => {
     const existingUser = await store.getUser(userToken);
     if (existingUser) {
       res.cookie("userToken", existingUser.id);
+      const userWithTimeRemaining = {
+        ...existingUser,
+        timeRemaining: getRegistrationTimeRemaining(existingUser),
+      };
       res.setHeader("Content-Type", "application/json");
-      return res.send(JSON.stringify(existingUser, null, 2));
+      return res.send(JSON.stringify(userWithTimeRemaining, null, 2));
     }
   }
 
@@ -275,8 +279,12 @@ app.get("/counter", async (req, res) => {
 
   if (existingUser) {
     res.cookie("userToken", existingUser.id);
+    const userWithTimeRemaining = {
+      ...existingUser,
+      timeRemaining: getRegistrationTimeRemaining(existingUser),
+    };
     res.setHeader("Content-Type", "application/json");
-    return res.send(JSON.stringify(existingUser, null, 2));
+    return res.send(JSON.stringify(userWithTimeRemaining, null, 2));
   }
 
   const id = await getUniqueId();
@@ -299,8 +307,12 @@ app.get("/counter", async (req, res) => {
 
   await store.saveUser(user);
   res.cookie("userToken", id);
+  const userWithTimeRemaining = {
+    ...user,
+    timeRemaining: getRegistrationTimeRemaining(user),
+  };
   res.setHeader("Content-Type", "application/json");
-  res.send(JSON.stringify(user, null, 2));
+  res.send(JSON.stringify(userWithTimeRemaining, null, 2));
 });
 
 app.get("/test", async (req, res) => {
@@ -310,7 +322,7 @@ app.get("/test", async (req, res) => {
 
   const user = {
     id: await getUniqueId(),
-    name: getName(req),
+    name: "Test",
     position: null,
     viewKey: generateKey(16),
     deleteKey: generateKey(),
@@ -323,8 +335,12 @@ app.get("/test", async (req, res) => {
   };
 
   await store.saveUser(user);
+  const userWithTimeRemaining = {
+    ...user,
+    timeRemaining: getRegistrationTimeRemaining(user),
+  };
   res.setHeader("Content-Type", "application/json");
-  res.send(JSON.stringify(user, null, 2));
+  res.send(JSON.stringify(userWithTimeRemaining, null, 2));
 });
 
 app.get("/admin", async (req, res) => {
@@ -347,8 +363,12 @@ app.get("/admin", async (req, res) => {
   };
 
   await store.saveUser(user);
+  const userWithTimeRemaining = {
+    ...user,
+    timeRemaining: getRegistrationTimeRemaining(user),
+  };
   res.setHeader("Content-Type", "application/json");
-  res.send(JSON.stringify(user, null, 2));
+  res.send(JSON.stringify(userWithTimeRemaining, null, 2));
 });
 
 function buildTableRows(userList, showPosition) {
@@ -389,13 +409,25 @@ app.get("/leaderboard", async (req, res) => {
 
   await prefetchCountries([...rankedUsers, ...specialUsers, ...unrankedUsers]);
 
+  // Return JSON if requested
+  if (req.query.format === 'json') {
+    const addCountry = (users) => users.map(u => ({
+      ...u,
+      country: ipCountryCache.get(u.ip) || null
+    }));
+    return res.json({ 
+      rankedUsers: addCountry(rankedUsers), 
+      specialUsers: addCountry(specialUsers), 
+      unrankedUsers: addCountry(unrankedUsers) 
+    });
+  }
+
   const html = `
     <!DOCTYPE html>
     <html>
       <head>
         <meta charset="UTF-8">
         <title>Leaderboard</title>
-        <meta http-equiv="refresh" content="5">
         <style>
           body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 16px; }
           h1, h2 { margin-top: 24px; }
@@ -407,23 +439,97 @@ app.get("/leaderboard", async (req, res) => {
           a.btn:hover { background: #8b0019; }
           .muted { color: #666; font-size: 14px; }
         </style>
+        <script>
+          const ADMIN_KEY = '${req.query.key}';
+          let countdowns = {};
+
+          function updateCountdowns() {
+            document.querySelectorAll('[data-joined]').forEach(el => {
+              const joined = new Date(el.dataset.joined).getTime();
+              const now = Date.now();
+              const elapsed = now - joined;
+              const remaining = Math.max(0, Math.ceil((180000 - elapsed) / 1000));
+              const countdownEl = el.querySelector('.countdown');
+              if (countdownEl) {
+                countdownEl.textContent = remaining + 's';
+              }
+            });
+          }
+
+          async function fetchLeaderboard() {
+            try {
+              const response = await fetch('/leaderboard?key=' + ADMIN_KEY + '&format=json');
+              const data = await response.json();
+              updateTable(data);
+            } catch (err) {
+              console.error('Failed to fetch leaderboard:', err);
+            }
+          }
+
+          function updateTable(data) {
+            const rankedTable = document.querySelector('#ranked-table tbody');
+            const unrankedTable = document.querySelector('#unranked-table tbody');
+            const specialTable = document.querySelector('#special-table tbody');
+
+            if (rankedTable) rankedTable.innerHTML = buildRows(data.rankedUsers, true);
+            if (unrankedTable) unrankedTable.innerHTML = buildRows(data.unrankedUsers, true);
+            if (specialTable) specialTable.innerHTML = buildRows(data.specialUsers, false);
+
+            updateCountdowns();
+          }
+
+          function buildRows(users, showPosition) {
+            return users.map(u => {
+              const label = u.admin ? ' (ADMIN)' : u.test ? ' (TEST)' : '';
+              const registeredDisplay = u.registered 
+                ? 'yes' 
+                : 'no (<span class="countdown">?</span>s)';
+              const ipDisplay = u.ip ? (u.ip + (u.country ? ' (' + u.country + ')' : '')) : u.ip;
+              return '<tr>' +
+                (showPosition ? '<td>' + (u.position ?? '—') + '</td>' : '') +
+                '<td>' + escapeHtml(u.id) + label + '</td>' +
+                '<td>' + escapeHtml(u.name) + '</td>' +
+                '<td data-joined="' + u.joined + '">' + registeredDisplay + '</td>' +
+                '<td>' + escapeHtml(ipDisplay) + '</td>' +
+                '</tr>';
+            }).join('');
+          }
+
+          function escapeHtml(text) {
+            if (!text) return text;
+            return String(text)
+              .replace(/&/g, "&​amp;")
+              .replace(/</g, "&​lt;")
+              .replace(/>/g, "&​gt;")
+              .replace(/"/g, "&​quot;");
+          }
+
+          // Update countdowns every second
+          setInterval(updateCountdowns, 1000);
+
+          // Fetch new data every 5 seconds
+          setInterval(fetchLeaderboard, 5000);
+
+          // Initial countdown update
+          updateCountdowns();
+        </script>
       </head>
       <body>
         <h1>Leaderboard</h1>
         <h2>People</h2>
-        <table>
+        <table id="ranked-table">
           <tr><th>Position</th><th>ID</th><th>Name</th><th>Registered</th><th>IP</th></tr>
-          ${buildTableRows(rankedUsers, true)}
+          <tbody>${buildTableRows(rankedUsers, true)}</tbody>
         </table>
         <h2>Unregistered</h2>
-        <table>
+        <table id="unranked-table">
           <tr><th>Position</th><th>ID</th><th>Name</th><th>Registered</th><th>IP</th></tr>
-          ${buildTableRows(unrankedUsers, true)}
+          <tbody>${buildTableRows(unrankedUsers, true)}</tbody>
         </table>
         <h2>Test &​amp; Admin</h2>
-        <table>
+        <table id="special-table">
           <tr><th>ID</th><th>Name</th><th>Registered</th><th>IP</th></tr>
-          ${buildTableRows(specialUsers, false)}
+          <tbody>${buildTableRows(specialUsers, false)}</tbody>
         </table>
       </body>
     </html>
