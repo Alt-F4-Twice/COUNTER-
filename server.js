@@ -441,6 +441,8 @@ app.get("/leaderboard", async (req, res) => {
           .muted { color: #666; font-size: 14px; }
         </style>
         <script>
+          let lastData = null;
+
           function updateCountdowns() {
             document.querySelectorAll('[data-joined]').forEach(el => {
               const joined = new Date(el.dataset.joined).getTime();
@@ -459,8 +461,68 @@ app.get("/leaderboard", async (req, res) => {
             });
           }
 
+          async function fetchLeaderboard() {
+            try {
+              const response = await fetch('/leaderboard?key=${req.query.key}&format=json');
+              const data = await response.json();
+              
+              // Only update if data changed (check user count)
+              const currentTotal = (data.rankedUsers.length + data.unrankedUsers.length + data.specialUsers.length);
+              const lastTotal = lastData ? (lastData.rankedUsers.length + lastData.unrankedUsers.length + lastData.specialUsers.length) : 0;
+              
+              if (currentTotal !== lastTotal) {
+                updateTable(data);
+                lastData = data;
+              }
+            } catch (err) {
+              console.error('Failed to fetch leaderboard:', err);
+            }
+          }
+
+          function updateTable(data) {
+            const rankedTable = document.querySelector('#ranked-table tbody');
+            const unrankedTable = document.querySelector('#unranked-table tbody');
+            const specialTable = document.querySelector('#special-table tbody');
+
+            if (rankedTable) rankedTable.innerHTML = buildRows(data.rankedUsers, true);
+            if (unrankedTable) unrankedTable.innerHTML = buildRows(data.unrankedUsers, true);
+            if (specialTable) specialTable.innerHTML = buildRows(data.specialUsers, false);
+
+            updateCountdowns();
+          }
+
+          function buildRows(users, showPosition) {
+            return users.map(u => {
+              const label = u.admin ? ' (ADMIN)' : u.test ? ' (TEST)' : '';
+              const registeredDisplay = u.registered 
+                ? 'yes' 
+                : 'no (<span class="countdown">?</span>s)';
+              const ipDisplay = u.ip ? (u.ip + (u.country ? ' (' + u.country + ')' : '')) : u.ip;
+              const dataJoined = u.registered ? '' : 'data-joined="' + u.joined + '"';
+              return '<tr>' +
+                (showPosition ? '<td>' + (u.position ?? '—') + '</td>' : '') +
+                '<td>' + escapeHtml(u.id) + label + '</td>' +
+                '<td>' + escapeHtml(u.name) + '</td>' +
+                '<td ' + dataJoined + '>' + registeredDisplay + '</td>' +
+                '<td>' + escapeHtml(ipDisplay) + '</td>' +
+                '</tr>';
+            }).join('');
+          }
+
+          function escapeHtml(text) {
+            if (!text) return text;
+            return String(text)
+              .replace(/&/g, "&​amp;")
+              .replace(/</g, "&​lt;")
+              .replace(/>/g, "&​gt;")
+              .replace(/"/g, "&​quot;");
+          }
+
           // Update countdowns every second
           setInterval(updateCountdowns, 1000);
+
+          // Fetch new data every 5 seconds
+          setInterval(fetchLeaderboard, 5000);
 
           // Initial countdown update
           updateCountdowns();
