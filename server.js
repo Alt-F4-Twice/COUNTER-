@@ -381,12 +381,13 @@ function buildTableRows(userList, showPosition) {
         : "";
     const registeredDisplay = u.registered 
       ? "yes" 
-      : `no (${getRegistrationTimeRemaining(u)}s)`;
+      : `no (<span class="countdown">${getRegistrationTimeRemaining(u)}s</span>)`;
+    const dataJoined = u.registered ? "" : `data-joined="${u.joined}"`;
     rows += `<tr>
       ${showPosition ? `<td>${u.position ?? "—"}</td>` : ""}
       <td>${escapeHtml(u.id)}${label}</td>
       <td>${escapeHtml(u.name)}</td>
-      <td>${registeredDisplay}</td>
+      <td ${dataJoined}>${registeredDisplay}</td>
       <td>${escapeHtml(formatIpDisplay(u.ip))}</td>
     </tr>`;
   });
@@ -440,75 +441,26 @@ app.get("/leaderboard", async (req, res) => {
           .muted { color: #666; font-size: 14px; }
         </style>
         <script>
-          const ADMIN_KEY = '${req.query.key}';
-          let countdowns = {};
-
           function updateCountdowns() {
             document.querySelectorAll('[data-joined]').forEach(el => {
               const joined = new Date(el.dataset.joined).getTime();
               const now = Date.now();
               const elapsed = now - joined;
               const remaining = Math.max(0, Math.ceil((180000 - elapsed) / 1000));
-              const countdownEl = el.querySelector('.countdown');
+              
+              // Always update the countdown
+              let countdownEl = el.querySelector('.countdown');
               if (countdownEl) {
                 countdownEl.textContent = remaining + 's';
+              } else {
+                // If no countdown span exists, create it
+                el.innerHTML = 'no (<span class="countdown">' + remaining + 's</span>)';
               }
             });
           }
 
-          async function fetchLeaderboard() {
-            try {
-              const response = await fetch('/leaderboard?key=' + ADMIN_KEY + '&format=json');
-              const data = await response.json();
-              updateTable(data);
-            } catch (err) {
-              console.error('Failed to fetch leaderboard:', err);
-            }
-          }
-
-          function updateTable(data) {
-            const rankedTable = document.querySelector('#ranked-table tbody');
-            const unrankedTable = document.querySelector('#unranked-table tbody');
-            const specialTable = document.querySelector('#special-table tbody');
-
-            if (rankedTable) rankedTable.innerHTML = buildRows(data.rankedUsers, true);
-            if (unrankedTable) unrankedTable.innerHTML = buildRows(data.unrankedUsers, true);
-            if (specialTable) specialTable.innerHTML = buildRows(data.specialUsers, false);
-
-            updateCountdowns();
-          }
-
-          function buildRows(users, showPosition) {
-            return users.map(u => {
-              const label = u.admin ? ' (ADMIN)' : u.test ? ' (TEST)' : '';
-              const registeredDisplay = u.registered 
-                ? 'yes' 
-                : 'no (<span class="countdown">?</span>s)';
-              const ipDisplay = u.ip ? (u.ip + (u.country ? ' (' + u.country + ')' : '')) : u.ip;
-              return '<tr>' +
-                (showPosition ? '<td>' + (u.position ?? '—') + '</td>' : '') +
-                '<td>' + escapeHtml(u.id) + label + '</td>' +
-                '<td>' + escapeHtml(u.name) + '</td>' +
-                '<td data-joined="' + u.joined + '">' + registeredDisplay + '</td>' +
-                '<td>' + escapeHtml(ipDisplay) + '</td>' +
-                '</tr>';
-            }).join('');
-          }
-
-          function escapeHtml(text) {
-            if (!text) return text;
-            return String(text)
-              .replace(/&/g, "&​amp;")
-              .replace(/</g, "&​lt;")
-              .replace(/>/g, "&​gt;")
-              .replace(/"/g, "&​quot;");
-          }
-
           // Update countdowns every second
           setInterval(updateCountdowns, 1000);
-
-          // Fetch new data every 5 seconds
-          setInterval(fetchLeaderboard, 5000);
 
           // Initial countdown update
           updateCountdowns();
@@ -782,4 +734,4 @@ async function start() {
 start().catch((err) => {
   console.error("Failed to start:", err);
   process.exit(1);
-});
+});v
