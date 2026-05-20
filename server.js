@@ -18,13 +18,16 @@ const REGISTRATION_WINDOW_MS = 180000;
 function isRankedUser(user) {
   return (
     user.position != null &&
+    user.registered &&
     !user.admin &&
     !user.test
+  ) || (
+    (user.admin || user.test) && user.registered && user.position != null
   );
 }
 
 function isSpecialUser(user) {
-  return user.admin || user.test;
+  return (user.admin || user.test) && !user.registered;
 }
 
 async function recalculatePositions() {
@@ -260,12 +263,8 @@ app.get("/counter", async (req, res) => {
     const existingUser = await store.getUser(userToken);
     if (existingUser) {
       res.cookie("userToken", existingUser.id);
-      const userWithTimeRemaining = {
-        ...existingUser,
-        timeRemaining: getRegistrationTimeRemaining(existingUser),
-      };
       res.setHeader("Content-Type", "application/json");
-      return res.send(JSON.stringify(userWithTimeRemaining, null, 2));
+      return res.send(JSON.stringify(existingUser, null, 2));
     }
   }
 
@@ -279,12 +278,8 @@ app.get("/counter", async (req, res) => {
 
   if (existingUser) {
     res.cookie("userToken", existingUser.id);
-    const userWithTimeRemaining = {
-      ...existingUser,
-      timeRemaining: getRegistrationTimeRemaining(existingUser),
-    };
     res.setHeader("Content-Type", "application/json");
-    return res.send(JSON.stringify(userWithTimeRemaining, null, 2));
+    return res.send(JSON.stringify(existingUser, null, 2));
   }
 
   const id = await getUniqueId();
@@ -307,12 +302,8 @@ app.get("/counter", async (req, res) => {
 
   await store.saveUser(user);
   res.cookie("userToken", id);
-  const userWithTimeRemaining = {
-    ...user,
-    timeRemaining: getRegistrationTimeRemaining(user),
-  };
   res.setHeader("Content-Type", "application/json");
-  res.send(JSON.stringify(userWithTimeRemaining, null, 2));
+  res.send(JSON.stringify(user, null, 2));
 });
 
 app.get("/test", async (req, res) => {
@@ -335,12 +326,8 @@ app.get("/test", async (req, res) => {
   };
 
   await store.saveUser(user);
-  const userWithTimeRemaining = {
-    ...user,
-    timeRemaining: getRegistrationTimeRemaining(user),
-  };
   res.setHeader("Content-Type", "application/json");
-  res.send(JSON.stringify(userWithTimeRemaining, null, 2));
+  res.send(JSON.stringify(user, null, 2));
 });
 
 app.get("/admin", async (req, res) => {
@@ -363,12 +350,8 @@ app.get("/admin", async (req, res) => {
   };
 
   await store.saveUser(user);
-  const userWithTimeRemaining = {
-    ...user,
-    timeRemaining: getRegistrationTimeRemaining(user),
-  };
   res.setHeader("Content-Type", "application/json");
-  res.send(JSON.stringify(userWithTimeRemaining, null, 2));
+  res.send(JSON.stringify(user, null, 2));
 });
 
 function buildTableRows(userList, showPosition) {
@@ -441,14 +424,19 @@ app.get("/leaderboard", async (req, res) => {
           .muted { color: #666; font-size: 14px; }
         </style>
         <script>
-          let lastData = null;
-
           function updateCountdowns() {
             document.querySelectorAll('[data-joined]').forEach(el => {
               const joined = new Date(el.dataset.joined).getTime();
               const now = Date.now();
               const elapsed = now - joined;
               const remaining = Math.max(0, Math.ceil((180000 - elapsed) / 1000));
+              
+              // Hide row if countdown reached 0
+              const row = el.closest('tr');
+              if (remaining === 0 && row) {
+                row.style.display = 'none';
+                return;
+              }
               
               // Always update the countdown
               let countdownEl = el.querySelector('.countdown');
@@ -461,68 +449,8 @@ app.get("/leaderboard", async (req, res) => {
             });
           }
 
-          async function fetchLeaderboard() {
-            try {
-              const response = await fetch('/leaderboard?key=${req.query.key}&format=json');
-              const data = await response.json();
-              
-              // Only update if data changed (check user count)
-              const currentTotal = (data.rankedUsers.length + data.unrankedUsers.length + data.specialUsers.length);
-              const lastTotal = lastData ? (lastData.rankedUsers.length + lastData.unrankedUsers.length + lastData.specialUsers.length) : 0;
-              
-              if (currentTotal !== lastTotal) {
-                updateTable(data);
-                lastData = data;
-              }
-            } catch (err) {
-              console.error('Failed to fetch leaderboard:', err);
-            }
-          }
-
-          function updateTable(data) {
-            const rankedTable = document.querySelector('#ranked-table tbody');
-            const unrankedTable = document.querySelector('#unranked-table tbody');
-            const specialTable = document.querySelector('#special-table tbody');
-
-            if (rankedTable) rankedTable.innerHTML = buildRows(data.rankedUsers, true);
-            if (unrankedTable) unrankedTable.innerHTML = buildRows(data.unrankedUsers, true);
-            if (specialTable) specialTable.innerHTML = buildRows(data.specialUsers, false);
-
-            updateCountdowns();
-          }
-
-          function buildRows(users, showPosition) {
-            return users.map(u => {
-              const label = u.admin ? ' (ADMIN)' : u.test ? ' (TEST)' : '';
-              const registeredDisplay = u.registered 
-                ? 'yes' 
-                : 'no (<span class="countdown">?</span>s)';
-              const ipDisplay = u.ip ? (u.ip + (u.country ? ' (' + u.country + ')' : '')) : u.ip;
-              const dataJoined = u.registered ? '' : 'data-joined="' + u.joined + '"';
-              return '<tr>' +
-                (showPosition ? '<td>' + (u.position ?? '—') + '</td>' : '') +
-                '<td>' + escapeHtml(u.id) + label + '</td>' +
-                '<td>' + escapeHtml(u.name) + '</td>' +
-                '<td ' + dataJoined + '>' + registeredDisplay + '</td>' +
-                '<td>' + escapeHtml(ipDisplay) + '</td>' +
-                '</tr>';
-            }).join('');
-          }
-
-          function escapeHtml(text) {
-            if (!text) return text;
-            return String(text)
-              .replace(/&/g, "&​amp;")
-              .replace(/</g, "&​lt;")
-              .replace(/>/g, "&​gt;")
-              .replace(/"/g, "&​quot;");
-          }
-
           // Update countdowns every second
           setInterval(updateCountdowns, 1000);
-
-          // Fetch new data every 5 seconds
-          setInterval(fetchLeaderboard, 5000);
 
           // Initial countdown update
           updateCountdowns();
@@ -696,6 +624,10 @@ app.get("/register/:id", async (req, res) => {
 
   user.registered = true;
   await store.saveUser(user);
+  
+  // Recalculate positions to ensure registered users have priority
+  await recalculatePositions();
+  
   res.setHeader("Content-Type", "application/json");
   res.send(JSON.stringify(user, null, 2));
 });
