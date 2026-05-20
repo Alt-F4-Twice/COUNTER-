@@ -13,6 +13,8 @@ app.use(cookieParser());
 
 const ipCountryCache = new Map();
 
+const REGISTRATION_WINDOW_MS = 180000;
+
 function isRankedUser(user) {
   return (
     user.position != null &&
@@ -112,6 +114,15 @@ function formatIpDisplay(ip) {
   if (!ip) return ip;
   const country = ipCountryCache.get(ip);
   return country ? `${ip} (${displayCountryCode(country)})` : ip;
+}
+
+function getRegistrationTimeRemaining(user) {
+  if (user.registered) return null;
+  const now = Date.now();
+  const joined = new Date(user.joined).getTime();
+  const elapsed = now - joined;
+  const remaining = Math.max(0, Math.ceil((REGISTRATION_WINDOW_MS - elapsed) / 1000));
+  return remaining;
 }
 
 async function prefetchCountries(userList) {
@@ -348,11 +359,14 @@ function buildTableRows(userList, showPosition) {
       : u.test
         ? " (TEST)"
         : "";
+    const registeredDisplay = u.registered 
+      ? "yes" 
+      : `no (${getRegistrationTimeRemaining(u)}s)`;
     rows += `<tr>
       ${showPosition ? `<td>${u.position ?? "—"}</td>` : ""}
       <td>${escapeHtml(u.id)}${label}</td>
       <td>${escapeHtml(u.name)}</td>
-      <td>${u.registered ? "yes" : "no"}</td>
+      <td>${registeredDisplay}</td>
       <td>${escapeHtml(formatIpDisplay(u.ip))}</td>
     </tr>`;
   });
@@ -369,8 +383,11 @@ app.get("/leaderboard", async (req, res) => {
   const specialUsers = all
     .filter(isSpecialUser)
     .sort((a, b) => new Date(a.joined) - new Date(b.joined));
+  const unrankedUsers = all
+    .filter((u) => !isRankedUser(u) && !isSpecialUser(u))
+    .sort((a, b) => new Date(a.joined) - new Date(b.joined));
 
-  await prefetchCountries([...rankedUsers, ...specialUsers]);
+  await prefetchCountries([...rankedUsers, ...specialUsers, ...unrankedUsers]);
 
   const html = `
     <!DOCTYPE html>
@@ -397,6 +414,11 @@ app.get("/leaderboard", async (req, res) => {
         <table>
           <tr><th>Position</th><th>ID</th><th>Name</th><th>Registered</th><th>IP</th></tr>
           ${buildTableRows(rankedUsers, true)}
+        </table>
+        <h2>Unregistered</h2>
+        <table>
+          <tr><th>Position</th><th>ID</th><th>Name</th><th>Registered</th><th>IP</th></tr>
+          ${buildTableRows(unrankedUsers, true)}
         </table>
         <h2>Test &​amp; Admin</h2>
         <table>
