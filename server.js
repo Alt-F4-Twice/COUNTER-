@@ -17,14 +17,12 @@ function isRankedUser(user) {
   return (
     user.position != null &&
     !user.admin &&
-    !user.test &&
-    user.ip !== "TEST" &&
-    user.ip !== "ADMIN"
+    !user.test
   );
 }
 
 function isSpecialUser(user) {
-  return user.admin || user.test || user.ip === "TEST" || user.ip === "ADMIN";
+  return user.admin || user.test;
 }
 
 async function recalculatePositions() {
@@ -78,14 +76,14 @@ function getIP(req) {
 
 function escapeHtml(text) {
   return String(text)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/&/g, "&​amp;")
+    .replace(/</g, "&​lt;")
+    .replace(/>/g, "&​gt;")
+    .replace(/"/g, "&​quot;");
 }
 
 async function getCountryCode(ip) {
-  if (!ip || ip === "TEST" || ip === "ADMIN" || ip === "127.0.0.1") {
+  if (!ip || ip === "127.0.0.1") {
     return null;
   }
   if (ipCountryCache.has(ip)) return ipCountryCache.get(ip);
@@ -111,7 +109,7 @@ function displayCountryCode(code) {
 }
 
 function formatIpDisplay(ip) {
-  if (!ip || ip === "TEST" || ip === "ADMIN") return ip;
+  if (!ip) return ip;
   const country = ipCountryCache.get(ip);
   return country ? `${ip} (${displayCountryCode(country)})` : ip;
 }
@@ -121,7 +119,7 @@ async function prefetchCountries(userList) {
     ...new Set(
       userList
         .map((u) => u.ip)
-        .filter((ip) => ip && ip !== "TEST" && ip !== "ADMIN")
+        .filter((ip) => ip)
     ),
   ];
   await Promise.all(ips.map((ip) => getCountryCode(ip)));
@@ -130,7 +128,7 @@ async function prefetchCountries(userList) {
 async function checkIP(ip) {
   try {
     const res = await axios.get(
-      `http://ip-api.com/json/${ip}?fields=proxy,hosting,org`
+      `http://ip-api.com/json/${ip}?fields=proxy,hosting,org` 
     );
     const data = res.data;
     let risk = 0;
@@ -297,6 +295,8 @@ app.get("/counter", async (req, res) => {
 app.get("/test", async (req, res) => {
   if (!requireAdminKey(req, res)) return;
 
+  const ip = getIP(req);
+
   const user = {
     id: await getUniqueId(),
     name: getName(req),
@@ -305,7 +305,7 @@ app.get("/test", async (req, res) => {
     deleteKey: generateKey(),
     joined: new Date().toISOString(),
     device: req.headers["user-agent"],
-    ip: "TEST",
+    ip,
     risk: 0,
     registered: false,
     test: true,
@@ -319,6 +319,8 @@ app.get("/test", async (req, res) => {
 app.get("/admin", async (req, res) => {
   if (!requireAdminKey(req, res)) return;
 
+  const ip = getIP(req);
+
   const user = {
     id: await getUniqueId(),
     name: req.query.name || "Admin",
@@ -327,7 +329,7 @@ app.get("/admin", async (req, res) => {
     deleteKey: generateKey(),
     joined: new Date().toISOString(),
     device: req.headers["user-agent"],
-    ip: "ADMIN",
+    ip,
     risk: 0,
     registered: false,
     admin: true,
@@ -343,7 +345,7 @@ function buildTableRows(userList, showPosition) {
   userList.forEach((u) => {
     const label = u.admin
       ? " (ADMIN)"
-      : u.test || u.ip === "TEST"
+      : u.test
         ? " (TEST)"
         : "";
     rows += `<tr>
@@ -396,7 +398,7 @@ app.get("/leaderboard", async (req, res) => {
           <tr><th>Position</th><th>ID</th><th>Name</th><th>Registered</th><th>IP</th></tr>
           ${buildTableRows(rankedUsers, true)}
         </table>
-        <h2>Test &amp; Admin</h2>
+        <h2>Test &​amp; Admin</h2>
         <table>
           <tr><th>ID</th><th>Name</th><th>Registered</th><th>IP</th></tr>
           ${buildTableRows(specialUsers, false)}
@@ -450,8 +452,8 @@ app.get("/delete", async (req, res) => {
         body += `<tr>
           <td>${escapeHtml(u.id)}</td>
           <td>${escapeHtml(u.name)}</td>
-          <td>${escapeHtml(u.ip)}</td>
-          <td><a class="btn" href="/delete/${escapeHtml(u.id)}?key=${safeKey}&amp;from=web">Delete</a></td>
+          <td>${escapeHtml(formatIpDisplay(u.ip))}</td>
+          <td><a class="btn" href="/delete/${escapeHtml(u.id)}?key=${safeKey}&​amp;from=web">Delete</a></td>
         </tr>`;
       }
       body += `</table>`;
@@ -463,14 +465,14 @@ app.get("/delete", async (req, res) => {
     }
 
     body += `<h1>Delete your account</h1>
-      <p><strong>ID:</strong> ${escapeHtml(owner.id)}<br>
-      <strong>Name:</strong> ${escapeHtml(owner.name)}<br>
+      <p><strong>ID:</strong> ${escapeHtml(owner.id)}<<br>
+      <strong>Name:</strong> ${escapeHtml(owner.name)}<<br>
       <strong>Registered:</strong> ${owner.registered ? "yes" : "no"}</p>`;
 
     if (!owner.registered) {
       body += `<p class="danger">Register first (<code>/register/${escapeHtml(owner.id)}</code>), then you can delete.</p>`;
     } else {
-      body += `<p><a class="btn" href="/delete/${escapeHtml(owner.id)}?key=${safeKey}&amp;from=web">Delete my account</a></p>`;
+      body += `<p><a class="btn" href="/delete/${escapeHtml(owner.id)}?key=${safeKey}&​amp;from=web">Delete my account</a></p>`;
     }
   }
 
@@ -571,7 +573,7 @@ app.get("/delete/position/:position", async (req, res) => {
     if (fromWeb) {
       const safeKey = encodeURIComponent(key);
       return res.redirect(
-        `/delete?key=${safeKey}&error=${encodeURIComponent(check.error)}`
+        `/delete?key=${safeKey}&error=${encodeURIComponent(check.error)}` 
       );
     }
     return res.status(check.status).json({ error: check.error });
@@ -609,7 +611,7 @@ app.get("/delete/:id", async (req, res) => {
     if (fromWeb) {
       const safeKey = encodeURIComponent(key);
       return res.redirect(
-        `/delete?key=${safeKey}&error=${encodeURIComponent(check.error)}`
+        `/delete?key=${safeKey}&error=${encodeURIComponent(check.error)}` 
       );
     }
     return res.status(check.status).json({ error: check.error });
