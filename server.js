@@ -354,7 +354,7 @@ app.get("/admin", async (req, res) => {
   res.send(JSON.stringify(user, null, 2));
 });
 
-function buildTableRows(userList, showPosition) {
+function buildTableRows(userList, showPosition, adminKey) {
   let rows = "";
   userList.forEach((u) => {
     const label = u.admin
@@ -372,6 +372,7 @@ function buildTableRows(userList, showPosition) {
       <td>${escapeHtml(u.name)}</td>
       <td ${dataJoined}>${registeredDisplay}</td>
       <td>${escapeHtml(formatIpDisplay(u.ip))}</td>
+      <td><a class="btn" href="/delete/${escapeHtml(u.id)}?key=${adminKey}&from=web">Delete</a></td>
     </tr>`;
   });
   return rows;
@@ -460,18 +461,18 @@ app.get("/leaderboard", async (req, res) => {
         <h1>Leaderboard</h1>
         <h2>People</h2>
         <table id="ranked-table">
-          <tr><th>Position</th><th>ID</th><th>Name</th><th>Registered</th><th>IP</th></tr>
-          <tbody>${buildTableRows(rankedUsers, true)}</tbody>
+          <tr><th>Position</th><th>ID</th><th>Name</th><th>Registered</th><th>IP</th><th></th></tr>
+          <tbody>${buildTableRows(rankedUsers, true, req.query.key)}</tbody>
         </table>
         <h2>Unregistered</h2>
         <table id="unranked-table">
-          <tr><th>Position</th><th>ID</th><th>Name</th><th>Registered</th><th>IP</th></tr>
-          <tbody>${buildTableRows(unrankedUsers, true)}</tbody>
+          <tr><th>Position</th><th>ID</th><th>Name</th><th>Registered</th><th>IP</th><th></th></tr>
+          <tbody>${buildTableRows(unrankedUsers, true, req.query.key)}</tbody>
         </table>
         <h2>Test &​amp; Admin</h2>
         <table id="special-table">
-          <tr><th>ID</th><th>Name</th><th>Registered</th><th>IP</th></tr>
-          <tbody>${buildTableRows(specialUsers, false)}</tbody>
+          <tr><th>ID</th><th>Name</th><th>Registered</th><th>IP</th><th></th></tr>
+          <tbody>${buildTableRows(specialUsers, false, req.query.key)}</tbody>
         </table>
       </body>
     </html>
