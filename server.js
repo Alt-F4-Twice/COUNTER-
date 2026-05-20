@@ -391,12 +391,12 @@ app.get("/leaderboard", async (req, res) => {
       </head>
       <body>
         <h1>Leaderboard</h1>
-        <h2>People (/counter)</h2>
+        <h2>People</h2>
         <table>
           <tr><th>Position</th><th>ID</th><th>Name</th><th>Registered</th><th>IP</th></tr>
           ${buildTableRows(rankedUsers, true)}
         </table>
-        <h2>Test &amp; Admin (/test, /admin)</h2>
+        <h2>Test &amp; Admin</h2>
         <table>
           <tr><th>ID</th><th>Name</th><th>Registered</th><th>IP</th></tr>
           ${buildTableRows(specialUsers, false)}
